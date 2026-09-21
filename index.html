@@ -570,10 +570,15 @@ async function entrar(pin){
   if(!temMov(r.data)) return semMovimento(NOME);
 
   const fichas = (r.data.fichas && r.data.fichas.length ? r.data.fichas : [r.data]).filter(f => filtraMeses(f).length);
-  fichas.forEach(f => (f.meses||[]).forEach(m => {
-    const a = (f.ajustes||[]).find(x => String(x.competencia) === String(m.competencia));
-    if(a) m._motivo = a.motivo;
-  }));
+  fichas.forEach(f => {
+    let acu = 0;                              // acumulado só com os meses enviados para este parceiro
+    (f.meses||[]).sort((x,y) => String(x.competencia).localeCompare(String(y.competencia))).forEach(m => {
+      acu += N(m.a_pagar);
+      m.a_pagar_acumulado = acu;
+      const a = (f.ajustes||[]).find(x => String(x.competencia) === String(m.competencia));
+      if(a) m._motivo = a.motivo;
+    });
+  });
   VISOES = fichas.map(f => ({rotulo:f.barra, ficha:f}));
   if(fichas.length > 1) VISOES.push({rotulo:'As ' + (fichas.length === 2 ? 'duas' : fichas.length) + ' juntas', ficha:juntar(fichas)});
 
