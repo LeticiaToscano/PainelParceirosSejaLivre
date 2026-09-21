@@ -659,6 +659,7 @@ function render(i){
   animateEl(el('stLiq'), p.liq, money);
   renderFaixas(fx, p.bon);
 
+  const comp = p.liq - (p.total - p.imp);    // prejuízo de barra negativa que não foi descontado
   el('liqBig').classList.toggle('neg', p.liq < 0);
   el('liqNote').innerHTML = p.negativo
     ? 'Neste mês o custo das plataformas superou a receita e o bônus. <b style="color:var(--txt)">Não há imposto sobre prejuízo e nada é descontado de você</b>: o valor a receber fica zerado.'
@@ -671,7 +672,6 @@ function render(i){
   animateEl(el('wfBonus'), p.bon, v => '+ '+money(v));
   animateEl(el('wfTotal'), p.total, money);
   animateEl(el('wfImp'), -p.imp, money);
-  const comp = p.liq - (p.total - p.imp);    // prejuízo de barra negativa que não foi descontado
   el('wfCompRow').classList.toggle('oculto', Math.abs(comp) < 1);
   el('wfComp').textContent = '+ ' + money(comp);
   animateEl(el('wfLiq'), p.liq, money, 1400);
