@@ -252,6 +252,11 @@ tr.sel td{background:rgba(0,230,118,.04)}
 .dd-sub{font-family:'Sora',sans-serif;font-weight:700;font-size:14px;color:var(--green)}
 @media (max-width:940px){.dsum{grid-template-columns:1fr;gap:26px}.dd-row{grid-template-columns:1fr 70px 100px}.dd-bar{display:none}}
 
+/* abas de visão (link com mais de uma barra) */
+.vis-tabs{display:flex;gap:6px;flex-wrap:wrap;padding:6px;margin-bottom:16px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:14px;width:fit-content;max-width:100%}
+.vis-tab{border:none;background:transparent;color:var(--txt-2);font-family:'Sora',sans-serif;font-weight:600;font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;white-space:nowrap}
+.vis-tab:hover{color:var(--txt);background:rgba(255,255,255,.04)}
+.vis-tab.active{background:var(--green);color:#04150C}
 /* PIN */
 .pin-in{width:100%;max-width:240px;margin:22px auto 0;display:block;text-align:center;letter-spacing:12px;font-family:'Sora',sans-serif;font-weight:700;font-size:26px;
   padding:14px 10px 14px 22px;border-radius:12px;background:var(--panel);border:1px solid var(--line-2);color:var(--txt)}
@@ -303,6 +308,7 @@ tr.sel td{background:rgba(0,230,118,.04)}
   <div class="card estado" id="estado"><div class="giro"></div><h1>Carregando…</h1><p>Buscando os dados da sua barra.</p></div>
 
   <div id="painel" class="oculto">
+    <div class="vis-tabs oculto" id="visTabs"></div>
     <div class="hero">
       <div class="card hero-id">
         <div>
@@ -333,6 +339,7 @@ tr.sel td{background:rgba(0,230,118,.04)}
             <div class="wf-row add"><span class="wl"><span class="ic">+</span> Bônus (faixas)</span><span class="wv" id="wfBonus">R$ 0</span></div>
             <div class="wf-row sub"><span class="wl"><span class="ic">=</span> Total</span><span class="wv" id="wfTotal">R$ 0</span></div>
             <div class="wf-row neg"><span class="wl"><span class="ic">−</span> IRPJ (19,57%)</span><span class="wv" id="wfImp">R$ 0</span></div>
+            <div class="wf-row add oculto" id="wfCompRow"><span class="wl"><span class="ic">+</span> Prejuízo não descontado</span><span class="wv" id="wfComp">R$ 0</span></div>
             <div class="wf-row total"><span class="wl"><span class="ic">=</span> Líquido do parceiro</span><span class="wv" id="wfLiq">R$ 0</span></div>
           </div>
         </div>
@@ -553,23 +560,66 @@ async function entrar(pin){
   if(erro === 'pin') return pedirPin('PIN incorreto.');
   if(erro === 'preparacao') return emPreparacao();
 
-  let meses = filtraMeses(r.data);
-  if(!meses.length){                         // começo de ano: mostra o ano anterior
+  const temMov = d => (d.fichas || [d]).some(f => filtraMeses(f).length);
+  if(!temMov(r.data)){                       // começo de ano: mostra o ano anterior
     const r2 = await SB.rpc('painel_parceiro_v3', {p_token:TOKEN, p_pin:pin, p_ano:ANO-1});
-    if(!r2.error && r2.data && !r2.data.erro){ r = r2; meses = filtraMeses(r2.data); }
+    if(!r2.error && r2.data && !r2.data.erro && temMov(r2.data)) r = r2;
   }
-  FICHA = r.data;
-  if(!meses.length) return semMovimento(FICHA.parceiro_nome || FICHA.barra);
-  MESES = meses.sort((a,b) => String(a.competencia).localeCompare(String(b.competencia)));
-  ATUAL = MESES.length - 1;
+  NOME = r.data.parceiro_nome || r.data.parceiro || r.data.barra;
+  if(!temMov(r.data)) return semMovimento(NOME);
+
+  const fichas = (r.data.fichas && r.data.fichas.length ? r.data.fichas : [r.data]).filter(f => filtraMeses(f).length);
+  VISOES = fichas.map(f => ({rotulo:f.barra, ficha:f}));
+  if(fichas.length > 1) VISOES.push({rotulo:'As ' + (fichas.length === 2 ? 'duas' : fichas.length) + ' juntas', ficha:juntar(fichas)});
 
   el('estado').classList.add('oculto');
   el('painel').classList.remove('oculto');
   el('selector').classList.remove('oculto');
-  el('heroId').textContent = FICHA.parceiro_nome || FICHA.parceiro || FICHA.barra;
+  el('heroId').textContent = NOME;
+  document.title = NOME + ' · Painel de Parceiros';
+  if(VISOES.length > 1){
+    const tabs = el('visTabs');
+    tabs.innerHTML = VISOES.map((v,i) => '<button class="vis-tab" data-v="'+i+'">'+esc(v.rotulo)+'</button>').join('');
+    tabs.querySelectorAll('.vis-tab').forEach(b => b.addEventListener('click', () => mostrarVisao(+b.dataset.v)));
+    tabs.classList.remove('oculto');
+  }
+  mostrarVisao(VISOES.length - 1);          // abre na visão conjunta quando houver
+}
+
+let NOME = '', VISOES = [];
+
+function mostrarVisao(k){
+  const compAtual = MESES[ATUAL] && MESES[ATUAL].competencia;
+  FICHA = VISOES[k].ficha;
+  MESES = filtraMeses(FICHA).sort((a,b) => String(a.competencia).localeCompare(String(b.competencia)));
+  const achou = MESES.findIndex(m => m.competencia === compAtual);
+  ATUAL = achou >= 0 ? achou : MESES.length - 1;
   el('heroParc').textContent = FICHA.barra;
-  document.title = (FICHA.parceiro_nome || FICHA.barra) + ' · Painel de Parceiros';
+  el('visTabs').querySelectorAll('.vis-tab').forEach(b => b.classList.toggle('active', +b.dataset.v === k));
   montarMenu(); montarGrafico(); render(ATUAL);
+}
+
+/* soma as barras mês a mês; cada barra continua apurada separada (prejuízo de uma não desconta da outra) */
+function juntar(fichas){
+  const porMes = {};
+  fichas.forEach(f => (f.meses||[]).forEach(m => {
+    const c = String(m.competencia);
+    const t = porMes[c] || (porMes[c] = {competencia:c, novos_clientes:0, contratos:0, receita_aai:0, custos_plataforma:0, bonus:0, liquido:0, a_pagar:0,
+                                         _p:{rec:0, plat:0, bon:0, total:0, imp:0, liq:0}, _pagos:0, _devidos:0});
+    ['novos_clientes','contratos','receita_aai','custos_plataforma','bonus','liquido','a_pagar'].forEach(k => t[k] += N(m[k]));
+    const p = partesBarra(m);
+    ['rec','plat','bon','total','imp','liq'].forEach(k => t._p[k] += p[k]);
+    if(N(m.a_pagar) > 0){ t._devidos++; if(m.status_pagamento === 'pago') t._pagos++; }
+  }));
+  let acu = 0;
+  const meses = Object.values(porMes).sort((a,b) => a.competencia.localeCompare(b.competencia)).map(t => {
+    acu += t.a_pagar;
+    t.a_pagar_acumulado = acu;
+    t.status_pagamento = (t._devidos && t._pagos === t._devidos) ? 'pago' : null;
+    t._p.negativo = t._p.total < 0 && t._p.liq === 0;
+    return t;
+  });
+  return {barra: fichas.map(f => f.barra).join(' + '), meses, faixas: [].concat(...fichas.map(f => f.faixas || []))};
 }
 
 async function carregar(){
@@ -579,7 +629,9 @@ async function carregar(){
 }
 
 /* ===================== PAINEL ===================== */
-function partes(m){
+function partes(m){ return m._p || partesBarra(m); }
+
+function partesBarra(m){
   const rec = N(m.receita_aai)*PCT_PARCEIRO;
   const plat = N(m.custos_plataforma)*PCT_PARCEIRO;          // negativo = custo
   const bon = N(m.bonus)*PCT_PARCEIRO;
@@ -610,13 +662,18 @@ function render(i){
   el('liqBig').classList.toggle('neg', p.liq < 0);
   el('liqNote').innerHTML = p.negativo
     ? 'Neste mês o custo das plataformas superou a receita e o bônus. <b style="color:var(--txt)">Não há imposto sobre prejuízo e nada é descontado de você</b>: o valor a receber fica zerado.'
-    : 'Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.';
+    : (comp >= 1
+      ? 'Uma das barras fechou negativa neste mês. <b style="color:var(--txt)">O prejuízo dela não desconta do seu resultado</b>: cada barra é apurada separada.'
+      : 'Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.');
   animateEl(el('liqBig'), p.liq, money, 1400);
   animateEl(el('wfRec'), p.rec, money);
   animateEl(el('wfPlat'), p.plat, money);
   animateEl(el('wfBonus'), p.bon, v => '+ '+money(v));
   animateEl(el('wfTotal'), p.total, money);
   animateEl(el('wfImp'), -p.imp, money);
+  const comp = p.liq - (p.total - p.imp);    // prejuízo de barra negativa que não foi descontado
+  el('wfCompRow').classList.toggle('oculto', Math.abs(comp) < 1);
+  el('wfComp').textContent = '+ ' + money(comp);
   animateEl(el('wfLiq'), p.liq, money, 1400);
 
   const custo = -p.plat;
