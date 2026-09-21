@@ -325,7 +325,7 @@ tr.sel td{background:rgba(0,230,118,.04)}
           <div>
             <div class="liq-label">● Bonificação líquida no mês</div>
             <div class="liq-big" id="liqBig">R$ 0</div>
-            <div class="liq-note">Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.</div>
+            <div class="liq-note" id="liqNote">Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.</div>
           </div>
           <div class="waterfall">
             <div class="wf-row add"><span class="wl"><span class="ic">%</span> Receitas</span><span class="wv" id="wfRec">R$ 0</span></div>
@@ -585,7 +585,9 @@ function partes(m){
   const bon = N(m.bonus)*PCT_PARCEIRO;
   const total = rec + plat + bon;
   const liq = N(m.a_pagar);
-  return {rec, plat, bon, total, imp: total - liq, liq};
+  // mês negativo: não há imposto sobre prejuízo e o valor a receber fica zerado
+  if(total < 0) return {rec, plat, bon, total, imp: 0, liq, negativo:true};
+  return {rec, plat, bon, total, imp: total - liq, liq, negativo:false};
 }
 
 function render(i){
@@ -606,6 +608,9 @@ function render(i){
   renderFaixas(fx, p.bon);
 
   el('liqBig').classList.toggle('neg', p.liq < 0);
+  el('liqNote').innerHTML = p.negativo
+    ? 'Neste mês o custo das plataformas superou a receita e o bônus. <b style="color:var(--txt)">Não há imposto sobre prejuízo e nada é descontado de você</b>: o valor a receber fica zerado.'
+    : 'Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.';
   animateEl(el('liqBig'), p.liq, money, 1400);
   animateEl(el('wfRec'), p.rec, money);
   animateEl(el('wfPlat'), p.plat, money);
