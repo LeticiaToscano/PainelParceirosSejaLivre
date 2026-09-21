@@ -340,6 +340,7 @@ tr.sel td{background:rgba(0,230,118,.04)}
             <div class="wf-row sub"><span class="wl"><span class="ic">=</span> Total</span><span class="wv" id="wfTotal">R$ 0</span></div>
             <div class="wf-row neg"><span class="wl"><span class="ic">−</span> IRPJ (19,57%)</span><span class="wv" id="wfImp">R$ 0</span></div>
             <div class="wf-row add oculto" id="wfCompRow"><span class="wl"><span class="ic">+</span> Prejuízo não descontado</span><span class="wv" id="wfComp">R$ 0</span></div>
+            <div class="wf-row neg oculto" id="wfAjRow"><span class="wl"><span class="ic">−</span> <span id="wfAjNome">Ajuste do fechamento</span></span><span class="wv" id="wfAj">R$ 0</span></div>
             <div class="wf-row total"><span class="wl"><span class="ic">=</span> Líquido do parceiro</span><span class="wv" id="wfLiq">R$ 0</span></div>
           </div>
         </div>
@@ -569,6 +570,10 @@ async function entrar(pin){
   if(!temMov(r.data)) return semMovimento(NOME);
 
   const fichas = (r.data.fichas && r.data.fichas.length ? r.data.fichas : [r.data]).filter(f => filtraMeses(f).length);
+  fichas.forEach(f => (f.meses||[]).forEach(m => {
+    const a = (f.ajustes||[]).find(x => String(x.competencia) === String(m.competencia));
+    if(a) m._motivo = a.motivo;
+  }));
   VISOES = fichas.map(f => ({rotulo:f.barra, ficha:f}));
   if(fichas.length > 1) VISOES.push({rotulo:'As ' + (fichas.length === 2 ? 'duas' : fichas.length) + ' juntas', ficha:juntar(fichas)});
 
@@ -605,10 +610,11 @@ function juntar(fichas){
   fichas.forEach(f => (f.meses||[]).forEach(m => {
     const c = String(m.competencia);
     const t = porMes[c] || (porMes[c] = {competencia:c, novos_clientes:0, contratos:0, receita_aai:0, custos_plataforma:0, bonus:0, liquido:0, a_pagar:0,
-                                         _p:{rec:0, plat:0, bon:0, total:0, imp:0, liq:0}, _pagos:0, _devidos:0});
+                                         _p:{rec:0, plat:0, bon:0, total:0, imp:0, liq:0, prej:0, aj:0, motivos:[]}, _pagos:0, _devidos:0});
     ['novos_clientes','contratos','receita_aai','custos_plataforma','bonus','liquido','a_pagar'].forEach(k => t[k] += N(m[k]));
     const p = partesBarra(m);
-    ['rec','plat','bon','total','imp','liq'].forEach(k => t._p[k] += p[k]);
+    ['rec','plat','bon','total','imp','liq','prej','aj'].forEach(k => t._p[k] += p[k]);
+    if(p.motivo && Math.abs(p.aj) >= 1) t._p.motivos.push(f.barra + ': ' + p.motivo);
     if(N(m.a_pagar) > 0){ t._devidos++; if(m.status_pagamento === 'pago') t._pagos++; }
   }));
   let acu = 0;
@@ -617,6 +623,7 @@ function juntar(fichas){
     t.a_pagar_acumulado = acu;
     t.status_pagamento = (t._devidos && t._pagos === t._devidos) ? 'pago' : null;
     t._p.negativo = t._p.total < 0 && t._p.liq === 0;
+    t._p.motivo = t._p.motivos.join(' · ');
     return t;
   });
   return {barra: fichas.map(f => f.barra).join(' + '), meses, faixas: [].concat(...fichas.map(f => f.faixas || []))};
@@ -637,9 +644,13 @@ function partesBarra(m){
   const bon = N(m.bonus)*PCT_PARCEIRO;
   const total = rec + plat + bon;
   const liq = N(m.a_pagar);
+  const negativo = total < 0;
   // mês negativo: não há imposto sobre prejuízo e o valor a receber fica zerado
-  if(total < 0) return {rec, plat, bon, total, imp: 0, liq, negativo:true};
-  return {rec, plat, bon, total, imp: total - liq, liq, negativo:false};
+  const liqCalc = negativo ? 0 : Math.round(total*(1-IRPJ)*100)/100;
+  const imp = negativo ? 0 : total - liqCalc;
+  const prej = negativo ? -total : 0;                          // prejuízo que não é descontado
+  const aj = liq - liqCalc;                                    // ajuste lançado no fechamento (ex.: tráfego)
+  return {rec, plat, bon, total, imp, liq, prej, aj, negativo, motivo: m._motivo || ''};
 }
 
 function render(i){
@@ -659,11 +670,12 @@ function render(i){
   animateEl(el('stLiq'), p.liq, money);
   renderFaixas(fx, p.bon);
 
-  const comp = p.liq - (p.total - p.imp);    // prejuízo de barra negativa que não foi descontado
   el('liqBig').classList.toggle('neg', p.liq < 0);
-  el('liqNote').innerHTML = p.negativo
+  el('liqNote').innerHTML = p.aj <= -1
+    ? 'Neste mês houve um desconto no fechamento: <b style="color:var(--txt)">' + esc(p.motivo || 'ajuste do fechamento') + '</b>. O valor a receber não fica abaixo de zero.'
+    : p.negativo
     ? 'Neste mês o custo das plataformas superou a receita e o bônus. <b style="color:var(--txt)">Não há imposto sobre prejuízo e nada é descontado de você</b>: o valor a receber fica zerado.'
-    : (comp >= 1
+    : (p.prej >= 1
       ? 'Uma das barras fechou negativa neste mês. <b style="color:var(--txt)">O prejuízo dela não desconta do seu resultado</b>: cada barra é apurada separada.'
       : 'Valores já na sua parte (50%). A composição segue o fechamento do mês feito pela Seja Livre.');
   animateEl(el('liqBig'), p.liq, money, 1400);
@@ -672,8 +684,11 @@ function render(i){
   animateEl(el('wfBonus'), p.bon, v => '+ '+money(v));
   animateEl(el('wfTotal'), p.total, money);
   animateEl(el('wfImp'), -p.imp, money);
-  el('wfCompRow').classList.toggle('oculto', Math.abs(comp) < 1);
-  el('wfComp').textContent = '+ ' + money(comp);
+  el('wfCompRow').classList.toggle('oculto', p.prej < 1);
+  el('wfComp').textContent = '+ ' + money(p.prej);
+  el('wfAjRow').classList.toggle('oculto', Math.abs(p.aj) < 1);
+  el('wfAjNome').textContent = p.motivo || 'Ajuste do fechamento';
+  el('wfAj').textContent = money(p.aj);
   animateEl(el('wfLiq'), p.liq, money, 1400);
 
   const custo = -p.plat;
